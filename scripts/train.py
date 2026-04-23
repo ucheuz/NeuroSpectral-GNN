@@ -93,6 +93,12 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--no-checkpoints", action="store_true")
 
     # Misc
+    p.add_argument(
+        "--device",
+        default="auto",
+        choices=["auto", "mps", "cuda", "cpu"],
+        help="Torch device preference (see src.utils.device.get_device).",
+    )
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--log-level", default="INFO",
                    choices=["DEBUG", "INFO", "WARNING", "ERROR"])
@@ -142,6 +148,7 @@ def main() -> int:
         tensorboard=not args.no_tensorboard,
         save_checkpoints=not args.no_checkpoints,
         seed=args.seed,
+        device_preference=args.device,
     )
 
     summary = run_cross_validation(cfg)

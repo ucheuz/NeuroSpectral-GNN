@@ -37,7 +37,15 @@ def get_device(prefer: str = "auto", verbose: bool = True) -> torch.device:
 
     if prefer == "cuda" or (prefer == "auto" and torch.cuda.is_available()):
         device = torch.device("cuda")
-    elif prefer == "mps" or (
+    elif prefer == "mps":
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+            device = torch.device("mps")
+        else:
+            if verbose:
+                logger.warning("MPS requested but not available; using CPU")
+            device = torch.device("cpu")
+    elif (
         prefer == "auto"
         and hasattr(torch.backends, "mps")
         and torch.backends.mps.is_available()

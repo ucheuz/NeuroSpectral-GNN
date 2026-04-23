@@ -229,7 +229,7 @@ def twin_separation_metrics(
     -------
     dict with keys:
         'mean_mz_distance', 'mean_dz_distance', 'mean_unrel_distance',
-        'distance_gap', 'auc', 'n_mz', 'n_dz', 'n_unrel'
+        'distance_gap', 'auc', 'pair_accuracy', 'n_mz', 'n_dz', 'n_unrel'
     """
     if distance_metric == "cosine":
         d = 1.0 - (
@@ -263,6 +263,16 @@ def twin_separation_metrics(
     else:
         auc = float("nan")
 
+    # Threshold split at midpoint of cohort mean MZ & DZ distances; predict MZ
+    # when distance is below the threshold (embeddings "closer" for true MZ).
+    pair_accuracy: float
+    if mz_d.size > 0 and dz_d.size > 0:
+        t = 0.5 * (float(np.mean(mz_d)) + float(np.mean(dz_d)))
+        n_correct = (mz_d < t).sum() + (dz_d >= t).sum()
+        pair_accuracy = float(n_correct / (mz_d.size + dz_d.size))
+    else:
+        pair_accuracy = float("nan")
+
     return {
         "mean_mz_distance": float(mz_d.mean()) if mz_d.size else float("nan"),
         "mean_dz_distance": float(dz_d.mean()) if dz_d.size else float("nan"),
@@ -270,6 +280,7 @@ def twin_separation_metrics(
         "distance_gap": float((dz_d.mean() if dz_d.size else 0.0)
                               - (mz_d.mean() if mz_d.size else 0.0)),
         "auc": auc,
+        "pair_accuracy": pair_accuracy,
         "n_mz": int(mz_d.size),
         "n_dz": int(dz_d.size),
         "n_unrel": int(unrel_d.size),

@@ -83,6 +83,15 @@ class TrainConfig:
     # auto | graph | multimodal | genetics_only (see SiameseConfig.model_type)
     model_type: str = "auto"
 
+    # KCL P65: SLIC supervoxel node layout + cross-modal attention (optional)
+    modality_feature_dims: Optional[tuple[int, ...]] = None
+    use_cross_modal_attention: bool = False
+    skip_graph_conv: bool = False
+    cross_modal_d_model: int = 64
+    cross_modal_num_heads: int = 4
+    cross_modal_dropout: float = 0.1
+    modality_names: tuple[str, ...] = ()
+
     # Optimisation
     lr: float = 1e-3
     weight_decay: float = 1e-4
@@ -105,6 +114,8 @@ class TrainConfig:
 
     # Reproducibility
     seed: int = 42
+    # torch device: "auto" | "mps" | "cuda" | "cpu" (see ``get_device``)
+    device_preference: str = "auto"
 
     def to_siamese(self) -> SiameseConfig:
         return SiameseConfig(
@@ -117,6 +128,13 @@ class TrainConfig:
             projection_dim=self.projection_dim,
             projection_hidden=self.projection_hidden,
             normalize_embeddings=self.normalize_embeddings,
+            modality_feature_dims=self.modality_feature_dims,
+            use_cross_modal_attention=self.use_cross_modal_attention,
+            skip_graph_conv=self.skip_graph_conv,
+            cross_modal_d_model=self.cross_modal_d_model,
+            cross_modal_num_heads=self.cross_modal_num_heads,
+            cross_modal_dropout=self.cross_modal_dropout,
+            modality_names=self.modality_names,
             prs_dim=self.prs_dim,
             prs_hidden=self.prs_hidden,
             prs_embed_dim=self.prs_embed_dim,
@@ -464,7 +482,7 @@ def train_single_fold(
 def run_cross_validation(cfg: TrainConfig) -> dict:
     """Run family-stratified K-fold CV and return an aggregated report."""
     set_seed(cfg.seed)
-    device = get_device()
+    device = get_device(cfg.device_preference)
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
     (cfg.output_dir / "config.json").write_text(
         json.dumps(asdict(cfg), indent=2, default=str)
@@ -511,6 +529,9 @@ def run_cross_validation(cfg: TrainConfig) -> dict:
         fr.final_metrics.get("distance_gap", float("nan")) for fr in fold_results
     ]
     auc_list = [fr.final_metrics.get("auc", float("nan")) for fr in fold_results]
+    acc_list = [
+        fr.final_metrics.get("pair_accuracy", float("nan")) for fr in fold_results
+    ]
 
     summary = {
         "n_folds": len(fold_results),
@@ -518,6 +539,7 @@ def run_cross_validation(cfg: TrainConfig) -> dict:
         "std_h2": float(np.std(h2_list)) if h2_list else float("nan"),
         "mean_distance_gap": float(np.nanmean(gap_list)) if gap_list else float("nan"),
         "mean_auc": float(np.nanmean(auc_list)) if auc_list else float("nan"),
+        "mean_pair_accuracy": float(np.nanmean(acc_list)) if acc_list else float("nan"),
         "per_fold": [
             {
                 "fold": fr.fold,
@@ -526,6 +548,7 @@ def run_cross_validation(cfg: TrainConfig) -> dict:
                 "h2": fr.heritability["h2"] if fr.heritability else float("nan"),
                 "distance_gap": fr.final_metrics.get("distance_gap", float("nan")),
                 "auc": fr.final_metrics.get("auc", float("nan")),
+                "pair_accuracy": fr.final_metrics.get("pair_accuracy", float("nan")),
             }
             for fr in fold_results
         ],
@@ -534,8 +557,10 @@ def run_cross_validation(cfg: TrainConfig) -> dict:
         json.dumps(summary, indent=2, default=str)
     )
     logger.info(
-        "===== CV summary =====  h2 = %.3f +/- %.3f  |  AUC = %.3f  |  gap = %.3f",
+        "===== CV summary =====  h2 = %.3f +/- %.3f  |  AUC = %.3f  |  acc = %.3f  |  gap = %.3f",
         summary["mean_h2"], summary["std_h2"],
-        summary["mean_auc"], summary["mean_distance_gap"],
+        summary["mean_auc"],
+        summary["mean_pair_accuracy"],
+        summary["mean_distance_gap"],
     )
     return summary

@@ -23,3 +23,5 @@ def test_twin_separation_mz_dz_only():
     m = twin_separation_metrics(z, z, zyg)
     assert m["n_unrel"] == 0
     assert np.isnan(m["mean_unrel_distance"])
+    assert "pair_accuracy" in m
+    assert 0.0 <= m["pair_accuracy"] <= 1.0

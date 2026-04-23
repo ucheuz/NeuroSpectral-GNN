@@ -1,0 +1,20 @@
+[
+  {
+    "variant": "graph_only_concat",
+    "mean_best_val_loss": 0.20618703433622915,
+    "mean_auc": 0.685,
+    "mean_pair_accuracy": 0.625
+  },
+  {
+    "variant": "attention_node_mlp_no_gcn",
+    "mean_best_val_loss": 0.2879039814661155,
+    "mean_auc": 0.74,
+    "mean_pair_accuracy": 0.7
+  },
+  {
+    "variant": "full_mha_gcn",
+    "mean_best_val_loss": 0.2758167683156595,
+    "mean_auc": 0.72,
+    "mean_pair_accuracy": 0.6000000000000001
+  }
+]

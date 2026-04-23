@@ -63,3 +63,23 @@ def test_brain_gnn_default_no_regression():
     ei = torch.tensor([[0, 1, 1, 2], [1, 0, 2, 1]], dtype=torch.long)
     o = enc(x, ei)
     assert o.shape == (1, enc.graph_embed_dim)
+
+
+def test_skip_graph_conv_attention_path():
+    cfg = SiameseConfig(
+        in_channels=16,
+        modality_feature_dims=(4, 4, 8),
+        use_cross_modal_attention=True,
+        cross_modal_d_model=32,
+        cross_modal_num_heads=4,
+        hidden_channels=16,
+        num_layers=2,
+        skip_graph_conv=True,
+    )
+    enc = BrainGNNEncoder(cfg)
+    assert enc.modality_mha is not None
+    assert enc.skip_graph_conv
+    x = torch.randn(4, 16)
+    ei = torch.zeros(2, 0, dtype=torch.long)  # unused
+    out = enc(x, ei)
+    assert out.shape[0] == 1

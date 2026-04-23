@@ -68,6 +68,11 @@ class SiameseConfig:
     # Optional modality names (for attention matrix axes in plots); length must
     # match ``modality_feature_dims`` when the latter is set.
     modality_names: tuple[str, ...] = ()
+    # Ablation: node-wise MLP on fused features, **no** GCN message passing
+    # (nodes treated as independent). Requires cross-modal MHA to be active for
+    # the "attention pool" P65 ablation, but can be True without MHA for
+    # bag-of-nodes MLP.
+    skip_graph_conv: bool = False
 
     # Multimodal PRS (polygenic-risk-score) fusion. 0 disables.
     prs_dim: int = 0
@@ -203,19 +208,40 @@ class BrainGNNEncoder(nn.Module):
         self.convs = nn.ModuleList()
         self.norms = nn.ModuleList()
         self._gcn_in_channels = gcn_in
+        self.skip_graph_conv: bool = bool(cfg.skip_graph_conv)
 
-        dims = [gcn_in] + [cfg.hidden_channels] * cfg.num_layers
-        for i in range(cfg.num_layers):
-            # add_self_loops=True is the standard GCN formulation: we inject
-            # \tilde{A} = A + I so each node also considers its own features.
-            # improved=False keeps us in the classical Kipf-Welling regime.
-            self.convs.append(
-                GCNConv(dims[i], dims[i + 1], add_self_loops=True, improved=False)
-            )
-            self.norms.append(nn.BatchNorm1d(dims[i + 1]))
+        if self.skip_graph_conv:
+            # Per-node MLP (shared weights) — ablation: no message passing.
+            self.convs = nn.ModuleList()
+            self.norms = nn.ModuleList()
+            stack: list[nn.Module] = []
+            d_in = gcn_in
+            for i in range(cfg.num_layers):
+                h = cfg.hidden_channels
+                stack += [
+                    nn.Linear(d_in, h),
+                    nn.BatchNorm1d(h),
+                    nn.ReLU(),
+                    nn.Dropout(p=cfg.dropout),
+                ]
+                d_in = h
+            self.node_mlp = nn.Sequential(*stack) if stack else nn.Identity()  # type: ignore[assignment]
+        else:
+            self.node_mlp = None  # type: ignore[assignment]
+            dims = [gcn_in] + [cfg.hidden_channels] * cfg.num_layers
+            for i in range(cfg.num_layers):
+                # add_self_loops=True is the standard GCN formulation: we inject
+                # \tilde{A} = A + I so each node also considers its own features.
+                # improved=False keeps us in the classical Kipf-Welling regime.
+                self.convs.append(
+                    GCNConv(dims[i], dims[i + 1], add_self_loops=True, improved=False)
+                )
+                self.norms.append(nn.BatchNorm1d(dims[i + 1]))
 
         pooled_dim = cfg.hidden_channels * (2 if cfg.pooling == "mean+add" else 1)
         self.graph_embed_dim = pooled_dim
+        if self.skip_graph_conv and cfg.num_layers < 1:
+            raise ValueError("skip_graph_conv=True requires num_layers >= 1")
 
     def _pool(self, x: Tensor, batch: Tensor) -> Tensor:
         if self.cfg.pooling == "mean":
@@ -265,11 +291,14 @@ class BrainGNNEncoder(nn.Module):
             ew = edge_weight.abs()
         else:
             ew = None
-        for conv, norm in zip(self.convs, self.norms):
-            x = conv(x, edge_index, edge_weight=ew)
-            x = norm(x)
-            x = F.relu(x)
-            x = F.dropout(x, p=self.cfg.dropout, training=self.training)
+        if self.skip_graph_conv:
+            x = self.node_mlp(x)  # type: ignore[operator]
+        else:
+            for conv, norm in zip(self.convs, self.norms):
+                x = conv(x, edge_index, edge_weight=ew)
+                x = norm(x)
+                x = F.relu(x)
+                x = F.dropout(x, p=self.cfg.dropout, training=self.training)
         out = self._pool(x, batch)
         if return_node_features and return_modality_attn:
             return out, x, mod_attn  # type: ignore[misc]  # mod_attn set above
@@ -382,6 +411,27 @@ class SiameseBrainNet(nn.Module):
         if self.cfg.normalize_embeddings:
             z = F.normalize(z, dim=-1, eps=1e-8)
         return z
+
+    def encode_modality_attention(self, data) -> Optional[Tensor]:
+        """Per-node M×M cross-modal self-attention (averaged over heads), or ``None``.
+
+        Shapes **(N, M, M)** in the batched (PyG) setting where **N** is the total
+        number of supervoxel nodes. Used for P65 interpretability (MZ vs DZ pooling).
+        """
+        enc = self.encoder
+        if not isinstance(enc, BrainGNNEncoder) or enc.modality_mha is None:
+            return None
+        x, edge_index, edge_weight, batch = self._extract(data)
+        out = enc(
+            x,
+            edge_index,
+            edge_weight,
+            batch,
+            return_modality_attn=True,
+        )
+        if isinstance(out, tuple) and len(out) == 2:
+            return out[1]
+        return None
 
     def project(self, z: Tensor) -> Tensor:
         out = self.projector(z)

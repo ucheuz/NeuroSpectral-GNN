@@ -1,0 +1,28 @@
+{
+  "n_folds": 2,
+  "mean_h2": 0.00850976705551143,
+  "std_h2": 0.002280640602111861,
+  "mean_distance_gap": 0.004254883620887995,
+  "mean_auc": 0.74,
+  "mean_pair_accuracy": 0.7,
+  "per_fold": [
+    {
+      "fold": 0,
+      "best_epoch": 4,
+      "best_val_loss": 0.2886592520486981,
+      "h2": 0.006229126453399569,
+      "distance_gap": 0.0031145624816417694,
+      "auc": 0.73,
+      "pair_accuracy": 0.65
+    },
+    {
+      "fold": 1,
+      "best_epoch": 4,
+      "best_val_loss": 0.28714871088353294,
+      "h2": 0.010790407657623291,
+      "distance_gap": 0.00539520476013422,
+      "auc": 0.7500000000000001,
+      "pair_accuracy": 0.75
+    }
+  ]
+}
