@@ -1,0 +1,16 @@
+.git
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ipynb_checkpoints
+data/
+runs/
+*.pt
+.env
+.coverage
+htmlcov/
+*.egg-info
+.venv
+venv
+neurognn/
