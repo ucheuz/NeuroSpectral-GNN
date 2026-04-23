@@ -29,10 +29,11 @@ def generate_synthetic_label_volume(
     Every voxel is assigned exactly one node id (no background) so
     ``node_values[i-1]`` in the reverse-mapper matches label ``i``.
 
-    * If ``num_nodes`` ≤ *Z* — ``num_nodes`` equal-thickness slabs along Z.
-    * Else — a 3D grid of sub-boxes: grid side lengths grow until
-      ``gz·gy·gx ≥ num_nodes``, then the first ``num_nodes`` cells (left-to-right
-      z→y→x) get labels 1..``num_nodes``.
+    Partitions a **3D grid** of sub-boxes (``gz×gy×gx``) so that
+    ``gz·gy·gx ≥ num_nodes`` with **as few** cells as possible; ties prefer a
+    **nearly cubic** layout (e.g. ``4×4×4`` for 64) so viewers see **patches in
+    every slice**, not 1×1×64 “string” grids that look like a smooth gradient in
+    Slicer.
     """
     if num_nodes < 1:
         raise ValueError("num_nodes must be >= 1")
@@ -41,31 +42,31 @@ def generate_synthetic_label_volume(
         raise ValueError("num_nodes cannot exceed total voxels in volume_shape")
 
     out = np.zeros((z, y, x), dtype=np.int32)
-    if num_nodes <= z:
-        edges = np.linspace(0, z, num_nodes + 1)
-        for k in range(num_nodes):
-            a = int(round(edges[k]))
-            b = z if k == num_nodes - 1 else int(round(edges[k + 1]))
-            a = min(max(a, 0), z - 1)
-            b = max(b, a + 1)
-            out[a:b, :, :] = k + 1
-        return out
-
-    # 3D grid: minimal (gz*gy*gx) >= num_nodes with gz<=z, gy<=y, gx<=x
-    best: Optional[Tuple[int, int, int]] = None
-    best_p = z * y * x + 1
+    # Minimal cell count p≥n, then a **balanced** 3D factorisation (avoids
+    # degenerate 1×1×K grids that look like a one-axis ramp in Slicer/FSL).
+    best: Optional[Tuple[int, int, int, int, int, int]] = None
+    best_key: Optional[Tuple[int, int, int, int, int, int]] = None
     for gz in range(1, z + 1):
         for gy in range(1, y + 1):
             for gx in range(1, x + 1):
                 p = gz * gy * gx
-                if p >= num_nodes and p < best_p:
-                    best_p, best = p, (gz, gy, gx)
+                if p < num_nodes:
+                    continue
+                min_side = min(gz, gy, gx)
+                max_vox = max(
+                    (z + gz - 1) // gz,
+                    (y + gy - 1) // gy,
+                    (x + gx - 1) // gx,
+                )
+                key = (p, -min_side, max_vox, gz, gy, gx)
+                if best_key is None or key < best_key:
+                    best_key, best = key, (p, -min_side, max_vox, gz, gy, gx)
     if best is None:
         raise ValueError(
             f"Cannot partition {num_nodes} nodes into a sub-grid of {(z, y, x)}; "
             "increase the volume or reduce num_nodes."
         )
-    gz, gy, gx = best
+    _, _, _, gz, gy, gx = best
     n_cell = 0
     for iz in range(gz):
         for iy in range(gy):

@@ -7,7 +7,7 @@ from src.utils.synthetic_atlas import (
 )
 
 
-def test_slab_partition_matches_num_nodes():
+def test_balanced_3d_partition_matches_num_nodes():
     d = generate_synthetic_label_volume(8, (8, 8, 8))
     assert d.shape == (8, 8, 8)
     assert int(d.max()) == 8
