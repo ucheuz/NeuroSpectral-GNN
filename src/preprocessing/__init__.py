@@ -1,6 +1,7 @@
 """Preprocessing pipeline: fMRI NIfTI -> parcellated timeseries -> sparse PyG graph."""
 
 from src.preprocessing.atlas import AtlasBundle, load_schaefer_atlas
+from src.preprocessing.registration import align_modalities, verify_mni152_space
 from src.preprocessing.connectivity import (
     compute_fisher_z_correlation,
     extract_timeseries,
@@ -27,6 +28,7 @@ from src.preprocessing.synthetic import (
 )
 
 __all__ = [
+    "align_modalities",
     "AtlasBundle",
     "GraphBuildConfig",
     "PreprocessConfig",
@@ -43,4 +45,5 @@ __all__ = [
     "load_schaefer_atlas",
     "preprocess_subject",
     "save_synthetic_cohort",
+    "verify_mni152_space",
 ]

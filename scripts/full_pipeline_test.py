@@ -8,8 +8,10 @@ Runs the complete NeuroSpectral-GNN pipeline on synthetic data:
     4. Train multimodal + aux-loss variant
     5. Train genetics-only (PRS ablation)
     6. Run h² recovery sweep (generates grant figure)
-    7. Latent-space + 3D connectome figures
-    8. Print pass/fail summary
+    7. Latent-space visualizations
+    8. 3D connectome figure (illustrative nilearn plot)
+    9. Synthetic 3D label NIfTI + fake heritability reverse-map (KCL P65)
+    Then: pass/fail summary
 
 TensorBoard logs are written to {output_dir}/tensorboard/ — launch with:
     tensorboard --logdir {output_dir}/tensorboard
@@ -32,11 +34,15 @@ import shutil
 import subprocess
 import sys
 import time
+
+import numpy as np
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 PYTHON = sys.executable  # Use the same Python that's running this script
 
 
@@ -205,7 +211,7 @@ def main() -> int:
     # 1. Smoke tests
     # -------------------------------------------------------------------------
     if not args.skip_smoke:
-        print("\n[1/8] Running smoke tests...\n")
+        print("\n[1/9] Running smoke tests...\n")
 
         suite.add(
             _run(
@@ -223,12 +229,12 @@ def main() -> int:
             )
         )
     else:
-        print("\n[1/8] Skipping smoke tests (--skip-smoke)\n")
+        print("\n[1/9] Skipping smoke tests (--skip-smoke)\n")
 
     # -------------------------------------------------------------------------
     # 2. Generate synthetic cohorts
     # -------------------------------------------------------------------------
-    print("\n[2/8] Generating synthetic cohorts...\n")
+    print("\n[2/9] Generating synthetic cohorts...\n")
 
     cohort_graph = out / "cohort_graph_only"
     suite.add(
@@ -274,7 +280,7 @@ def main() -> int:
     # -------------------------------------------------------------------------
     # 3. Train graph-only baseline
     # -------------------------------------------------------------------------
-    print("\n[3/8] Training graph-only baseline...\n")
+    print("\n[3/9] Training graph-only baseline...\n")
 
     run_graph = out / "runs" / "graph_only"
     suite.add(
@@ -312,7 +318,7 @@ def main() -> int:
     # -------------------------------------------------------------------------
     # 4. Train multimodal + aux loss
     # -------------------------------------------------------------------------
-    print("\n[4/8] Training multimodal + aux-loss model...\n")
+    print("\n[4/9] Training multimodal + aux-loss model...\n")
 
     run_mm = out / "runs" / "multimodal_aux"
     suite.add(
@@ -355,7 +361,7 @@ def main() -> int:
     # -------------------------------------------------------------------------
     # 5. Train genetics-only (PRS ablation — completes ablation triangle)
     # -------------------------------------------------------------------------
-    print("\n[5/8] Training genetics-only (PRS) baseline...\n")
+    print("\n[5/9] Training genetics-only (PRS) baseline...\n")
 
     run_geo = out / "runs" / "genetics_only"
     suite.add(
@@ -396,7 +402,7 @@ def main() -> int:
     # 6. h² recovery sweep (grant figure)
     # -------------------------------------------------------------------------
     if not args.skip_sweep:
-        print("\n[6/8] Running h² recovery sweep (this is the longest step)...\n")
+        print("\n[6/9] Running h² recovery sweep (this is the longest step)...\n")
 
         sweep_dir = out / "h2_sweep"
         h2_str = " ".join(str(h) for h in sweep_h2)
@@ -436,12 +442,12 @@ def main() -> int:
                         for f in tb_fold.iterdir():
                             shutil.copy(f, dest)
     else:
-        print("\n[6/8] Skipping h² sweep (--skip-sweep)\n")
+        print("\n[6/9] Skipping h² sweep (--skip-sweep)\n")
 
     # -------------------------------------------------------------------------
     # 7. Latent-space visualizations
     # -------------------------------------------------------------------------
-    print("\n[7/8] Generating latent-space visualizations...\n")
+    print("\n[7/9] Generating latent-space visualizations...\n")
 
     figures_dir = out / "figures"
     figures_dir.mkdir(exist_ok=True)
@@ -489,7 +495,7 @@ def main() -> int:
     # -------------------------------------------------------------------------
     # 8. 3D connectome (nilearn; grant supplementary figure)
     # -------------------------------------------------------------------------
-    print("\n[8/8] 3D connectome render (illustrative)...\n")
+    print("\n[8/9] 3D connectome render (illustrative)...\n")
     c3d = figures_dir / "connectome_3d.png"
     suite.add(
         _run(
@@ -504,6 +510,44 @@ def main() -> int:
             output_path=c3d,
         )
     )
+
+    # -------------------------------------------------------------------------
+    # 9. Synthetic node-label 3D volume + reverse-map (P65, no SITK required)
+    # -------------------------------------------------------------------------
+    print("\n[9/9] Synthetic label atlas + fake heritability NIfTI (reverse-map)...\n")
+    t_atlas = time.perf_counter()
+    try:
+        from src.utils.synthetic_atlas import generate_synthetic_atlas_nifti
+        from src.utils.visualization import map_nodes_to_volume
+
+        atlas_dir = out / "synthetic_atlas"
+        atlas_dir.mkdir(exist_ok=True)
+        vol_shape = (64, 64, 64)
+        nii = generate_synthetic_atlas_nifti(
+            n_rois,
+            vol_shape,
+            atlas_dir / "synth_node_labels.nii.gz",
+        )
+        fake = ((np.arange(n_rois, dtype=np.float32) + 1.0) / max(n_rois, 1)) ** 2
+        heat = atlas_dir / "synth_fake_heritability_atlas.nii.gz"
+        map_nodes_to_volume(fake, nii, heat, fill_background=0.0)
+        suite.add(
+            TestResult(
+                name="Synthetic node atlas + reverse-map (fake h² field)",
+                passed=True,
+                duration_s=time.perf_counter() - t_atlas,
+                output_path=heat,
+            )
+        )
+    except Exception as e:
+        suite.add(
+            TestResult(
+                name="Synthetic node atlas + reverse-map (fake h² field)",
+                passed=False,
+                duration_s=time.perf_counter() - t_atlas,
+                message=str(e)[:200],
+            )
+        )
 
     # -------------------------------------------------------------------------
     # Summary
