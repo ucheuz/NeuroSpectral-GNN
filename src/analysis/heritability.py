@@ -285,3 +285,47 @@ def twin_separation_metrics(
         "n_dz": int(dz_d.size),
         "n_unrel": int(unrel_d.size),
     }
+
+
+# --- Classical (Falconer) per-feature h^2 from raw twin-pair phenotypes ---------------
+
+
+def pearson_twin_phenotype_r(x_a: np.ndarray, x_b: np.ndarray) -> float:
+    """Pearson r between co-twins' same scalar phenotype across *pairs* (one value per subject per pair)."""
+    x_a = np.asarray(x_a, dtype=np.float64).ravel()
+    x_b = np.asarray(x_b, dtype=np.float64).ravel()
+    if x_a.size < 2 or x_b.size < 2 or x_a.size != x_b.size:
+        return 0.0
+    if float(np.std(x_a)) < 1e-12 or float(np.std(x_b)) < 1e-12:
+        return 0.0
+    return float(np.corrcoef(x_a, x_b)[0, 1])
+
+
+def per_feature_falconer_h2(
+    twin_a_mz: np.ndarray,
+    twin_b_mz: np.ndarray,
+    twin_a_dz: np.ndarray,
+    twin_b_dz: np.ndarray,
+) -> np.ndarray:
+    """Falconer h^2 = 2(r_MZ − r_DZ) per feature dimension, clamped to [0, 1].
+
+    twin_* shapes must share (P_*, D). For each j in 0..D-1, r is the
+    across-pairs Pearson correlation of the twin-A vector vs twin-B vector for
+    that feature (KCL P65 classical baseline vs the GNN).
+    """
+    twin_a_mz = np.asarray(twin_a_mz, dtype=np.float64)
+    twin_b_mz = np.asarray(twin_b_mz, dtype=np.float64)
+    twin_a_dz = np.asarray(twin_a_dz, dtype=np.float64)
+    twin_b_dz = np.asarray(twin_b_dz, dtype=np.float64)
+    if (
+        twin_a_mz.shape != twin_b_mz.shape
+        or twin_a_dz.shape != twin_b_dz.shape
+    ):
+        raise ValueError("MZ and DZ twin A/B array pairs must have matching shape.")
+    d = int(twin_a_mz.shape[1])
+    out = np.empty(d, dtype=np.float32)
+    for j in range(d):
+        r_mz = pearson_twin_phenotype_r(twin_a_mz[:, j], twin_b_mz[:, j])
+        r_dz = pearson_twin_phenotype_r(twin_a_dz[:, j], twin_b_dz[:, j])
+        out[j] = float(np.clip(2.0 * (r_mz - r_dz), 0.0, 1.0))
+    return out

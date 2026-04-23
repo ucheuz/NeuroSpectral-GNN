@@ -17,6 +17,18 @@ def test_build_graph_default():
     assert m.__class__.__name__ == "SiameseBrainNet"
 
 
+def test_build_fused_alias_matches_multimodal():
+    cfg = SiameseConfig(
+        in_channels=32,
+        hidden_channels=16,
+        prs_dim=8,
+        prs_embed_dim=16,
+        model_type="fused",
+    )
+    m = build_siamese_model(cfg)
+    assert m.__class__.__name__ == "MultimodalSiameseBrainNet"
+
+
 def test_build_multimodal_auto():
     cfg = SiameseConfig(
         in_channels=32,

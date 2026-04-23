@@ -80,7 +80,8 @@ class TrainConfig:
     prs_embed_dim: int = 64
     prs_dropout: float = 0.1
     prs_fusion: str = "concat"
-    # auto | graph | multimodal | genetics_only (see SiameseConfig.model_type)
+    genetics_mlp_num_hidden_blocks: int = 2
+    # auto | graph | multimodal | genetics_only | fused (see SiameseConfig.model_type)
     model_type: str = "auto"
 
     # KCL P65: SLIC supervoxel node layout + cross-modal attention (optional)
@@ -140,6 +141,7 @@ class TrainConfig:
             prs_embed_dim=self.prs_embed_dim,
             prs_dropout=self.prs_dropout,
             prs_fusion=self.prs_fusion,  # type: ignore[arg-type]
+            genetics_mlp_num_hidden_blocks=self.genetics_mlp_num_hidden_blocks,
             model_type=self.model_type,  # type: ignore[arg-type]
         )
 

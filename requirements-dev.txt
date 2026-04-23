@@ -1,3 +1,5 @@
 # Optional dev / CI dependencies (not required for model training)
 pytest>=7.0
 pytest-cov>=4.0
+# Hyperparameter search (scripts/optimize.py) — also listed in requirements.txt
+optuna>=3.6.0

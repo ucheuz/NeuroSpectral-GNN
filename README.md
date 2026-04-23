@@ -1,274 +1,264 @@
+<!-- NeuroSpectral-GNN — KCL Project 65 (pre–data–freeze documentation) -->
+
 # NeuroSpectral-GNN
 
-**Project 65: Decoding Genetic vs. Environmental Brain Phenotype with Multimodal Graph Neural Networks**
+**Multimodal Siamese Graph Neural Networks for Heritability of Brain Organization**
 
-A Siamese Graph Neural Network for estimating the heritability (h²) of brain connectivity patterns from twin fMRI data. This project uses spectral graph convolutions on functional connectomes to learn genetically-informed representations, where monozygotic (MZ) twin pairs cluster more tightly than dizygotic (DZ) pairs.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.x-EE4C2C?logo=pytorch)](https://pytorch.org/)
+[![Platform](https://img.shields.io/badge/Apple%20Silicon-MPS%20%7C%20CUDA%20%7C%20CPU-555555)](#installation)
 
-## Overview
+*NeuroSpectral-GNN* is a **multimodal Siamese Graph Neural Network (GNN) framework** developed for **KCL Project 65** to disentangle **genetic** and **environmental** contributions to **brain structure and function** from **TwinsUK** neuroimaging and genomics. It combines multi-sequence MRI mapped to **SLIC supervoxels** (T1, T2-FLAIR, DWI) with **Polygenic Risk Scores (PRS)**, and learns a representation in which monozygotic (MZ) twin pairs are more similar than dizygotic (DZ) pairs. Learned and classical statistics are **reverse-mapped** into 3D volumes to form **heritability and interpretability atlases** suitable for thesis evaluation and grant reporting.
 
-The core idea: if genetics influence brain connectivity, then MZ twins (who share 100% of their DNA) should have more similar brain networks than DZ twins (who share ~50%). We train a Siamese GNN with contrastive loss to learn this structure, then estimate heritability using Falconer's formula on the learned embeddings.
+---
 
-**Key features:**
-- Spectral graph convolutions (GCNConv) on brain connectivity graphs
-- Multimodal fusion of connectome + polygenic risk scores (PRS)
-- Heritability-aware auxiliary loss for calibrated h² estimation
-- Family-stratified cross-validation to prevent data leakage
-- Comprehensive synthetic data generation for validation
+## Motivation in one paragraph
 
-## Quick Start
+If additive genetic effects shape mesoscale brain organization, then MZ co-twins should exhibit higher concordance for connectivity or morphology-derived phenotypes than DZ co-twins. A **Siamese** encoder with **contrastive** objectives operationalizes that principle on **graph-structured** brain data, while a **genetics** branch encodes high-dimensional PRS. **Cross-modal attention** modulates per-node use of each imaging-derived modality, and outputs can be **compared to classical heritability** (Falconer) estimated directly on the same connectomes.
 
-### 1. Environment Setup
+---
 
-```bash
-# Create conda environment
-conda create -n neurognn python=3.10
-conda activate neurognn
+## Architecture overview
 
-# Install PyTorch (M1 Mac)
-pip install torch torchvision torchaudio
+### Siamese encoder and contrastive loss
 
-# Install PyTorch Geometric
-pip install torch-geometric
+For each family, two **subject graphs** (twins A and B) are encoded into embeddings **z<sub>A</sub>**, **z<sub>B</sub>**. Training encourages **high similarity** for true MZ (and to a lesser degree DZ) pairs and **separation** from unrelated or harder negatives, using a **contrastive** margin in cosine or Euclidean space. **Family-stratified K-fold** splits limit leakage of genetic background across train and validation.
 
-# Install other dependencies
-pip install -r requirements.txt
+### Graph branch and multimodal fusion
 
-# Install TensorBoard for monitoring
-pip install tensorboard
-```
+- **Node features** derive from the functional connectome (e.g. **Fisher-z profile** per parcellation / supervoxel) with configurable sparsification (top-k, **proportional**, or thresholded edges).
+- **Message passing** uses spectral-style GCN-style layers; edge weights and pooling are configurable in `TrainConfig` / the training CLI.
+- **Genetics (PRS)**: a dedicated **MLP** (`genetics_encoder.py`) with **BatchNorm**, **dropout**, and support for **variable effective dimension** in fusion modes.
 
-### 2. Run the Full Pipeline Test
+### Cross-modal attention
 
-```bash
-# Quick test (~2 minutes)
-python scripts/full_pipeline_test.py --output-dir data/pipeline_test --quick
+When more than one imaging-derived modality is present (e.g. multiple feature blocks per supervoxel), a **transformer-style multi-head attention** block can learn **per-node** weights over modalities before or alongside graph convolutions, enabling **“modality dominance”** analysis for neuroscience interpretation.
 
-# Full test (~5 minutes)
-python scripts/full_pipeline_test.py --output-dir data/pipeline_test --clean
-```
+### Classical statistical baseline (dissertation / evaluation)
 
-This runs:
-1. Smoke tests (preprocessing + model)
-2. Synthetic cohort generation
-3. Graph-only baseline training
-4. Multimodal + aux-loss training
-5. h² recovery sweep
-6. Latent-space visualizations
+A separate path computes **Falconer** narrow-sense heritability on **raw** connectome-derived **per-node** (and optionally per-edge) scalars, **h<sup>2</sup> = 2(r<sub>MZ</sub> − r<sub>DZ</sub>)** with **Pearson** twin correlations, **clamped to [0, 1]**, and exports NIfTIs and scatter plots **against GNN saliency** for direct comparison. See [Usage examples](#usage-examples) and `scripts/baseline_heritability.py`.
 
-### 3. Monitor Training with TensorBoard
+---
 
-```bash
-tensorboard --logdir data/pipeline_test/tensorboard
-# Open http://localhost:6006
+## Pipeline workflow (end to end)
+
+1. **Cohort and file validation**  
+   Run the BIDS / layout validator with your imaging root and a PRS table to confirm **NIfTI** presence, modality rules (T1, FLAIR, DWI, etc.), and **ID alignment** with **tabular PRS** before any heavy preprocessing.
+
+2. **Preprocessing**  
+   BOLD fMRI (or T1/FLAIR/DWI for morphometry pipelines where implemented) is reduced to time series, parcellated or **SLIC-segmented** in 3D, and converted to **Fisher-z** connectomes. Outputs follow a fixed layout: `subjects/{id}.pt` and `pairs.csv` (twin **A/B**, **zygosity**, labels).
+
+3. **Training and hyperparameter optimization**  
+   **Family-stratified** cross-validation, optional **heritable auxiliary** losses on synthetic cohorts, and **Optuna** for Bayesian search over learning rate, margin, width, and attention **hyperparameters** (see `scripts/optimize.py`).
+
+4. **Evaluation and ablations**  
+   Use validation metrics, h<sup>2</sup>-related diagnostics, and optional **ablation** scripts. Compare to the **Falconer** atlas and correlation with **GNN** saliency.
+
+5. **Interpretability (XAI)**  
+   **Integrated gradients** (and related) saliency on node features, **reverse-mapping** to **NIfTI** with `map_nodes_to_volume` (**heritability** / **saliency** atlases) and **modality dominance** atlases from attention (**dominance** = argmax over modalities per supervoxel).
+
+```mermaid
+flowchart LR
+  A[BIDS + PRS validation] --> B[Preprocess → graphs]
+  B --> C[Train / HPO]
+  C --> D[Eval + Falconer baseline]
+  D --> E[Saliency + dominance NIfTIs]
 ```
 
 ---
 
-## Understanding the TensorBoard Metrics
+## Directory structure
 
-### Loss Metrics
+A concise view of the repository layout (Python **src** package, **scripts**, **tests**, **docs**, and run artifacts under **runs**):
 
-| Metric | What it shows | Good pattern |
-|--------|---------------|--------------|
-| `loss/train` | Training loss per epoch | Smooth downward curve |
-| `loss/val` | Validation loss (triggers early stopping) | Decreases then flattens |
-| `loss/train_aux_h2` | Heritability calibration loss (multimodal only) | Drops toward 0 |
-
-**What to watch for:**
-- If `train` drops but `val` rises → **overfitting**
-- If both are flat → **model isn't learning** (check learning rate)
-- If `train_aux_h2` oscillates wildly → **batch size too small**
-
-### Validation Metrics
-
-| Metric | What it shows | Target |
-|--------|---------------|--------|
-| `val/h2` | Estimated heritability from embeddings | Should match ground truth |
-| `val/auc` | MZ vs DZ classification accuracy | Higher = better discrimination |
-| `val/mean_mz_distance` | Average distance between MZ twin embeddings | Should be small |
-| `val/mean_dz_distance` | Average distance between DZ twin embeddings | Should be larger than MZ |
-
-**The key insight:** The gap between MZ and DZ distances IS the learned genetic signal.
-
-### Comparing Models
-
-Select multiple runs in the TensorBoard sidebar to overlay them:
-
-| Question | Compare | Good sign |
-|----------|---------|-----------|
-| Does PRS help? | `val/auc` across models | Multimodal ≥ graph-only |
-| Is aux-loss calibrating? | `val/h2` | Closer to ground truth |
-| Which generalizes better? | `loss/val` | Lower final value |
-
-### Expected Patterns by Heritability Level
-
-| Ground truth h² | Expected AUC | Expected behavior |
-|-----------------|--------------|-------------------|
-| 0.0 | ~0.5 | Random (no genetic signal) |
-| 0.4–0.6 | 0.6–0.8 | Moderate separation |
-| 1.0 | ~1.0 | Perfect separation, MZ distance → 0 |
-
----
-
-## Project Structure
-
-```
+```text
 NeuroSpectral-GNN/
-├── src/
-│   ├── models/
-│   │   └── siamese_gnn.py      # BrainGNNEncoder, SiameseBrainNet, MultimodalSiameseBrainNet
-│   ├── preprocessing/
-│   │   ├── atlas.py            # Schaefer atlas loading
-│   │   ├── connectivity.py     # Timeseries extraction, Fisher-z correlation
-│   │   ├── graph.py            # Connectivity → PyG Data conversion
-│   │   ├── manifest.py         # Twin pair metadata parsing
-│   │   ├── pipeline.py         # Full preprocessing orchestration
-│   │   └── synthetic.py        # Synthetic twin data generation
-│   ├── training/
-│   │   └── trainer.py          # Training loop, CV, early stopping
-│   ├── analysis/
-│   │   ├── heritability.py     # Falconer h², HeritabilityHead
-│   │   └── splits.py           # Family-stratified K-fold
-│   └── utils/
-│       ├── brain_dataset.py    # TwinBrainDataset, twin_collate
-│       ├── device.py           # MPS/CUDA/CPU selection
-│       └── seeds.py            # Reproducibility
-├── scripts/
-│   ├── full_pipeline_test.py   # End-to-end validation
-│   ├── train.py                # CLI for training
-│   ├── run_h2_sweep.py         # Heritability recovery sweep
-│   ├── plot_latent_space.py    # t-SNE/UMAP visualization
-│   ├── generate_synthetic_twins.py
-│   ├── preprocess_twins.py     # Real data preprocessing
-│   └── smoke_test_*.py         # Quick validation scripts
+├── LICENSE
+├── README.md
+├── requirements.txt
+├── requirements-dev.txt
+├── pytest.ini
 ├── docs/
-│   └── spectral_primer.md      # Spectral graph theory explainer
-├── data/                       # Generated during testing
-└── requirements.txt
+│   └── spectral_primer.md
+├── figures/                    # static figures (optional for papers)
+├── notebooks/                  # exploratory notebooks
+├── runs/                      # local experiment outputs (git-ignored in whole or part)
+│   ├── <exp_name>/
+│   │   ├── config.json
+│   │   ├── fold_NN/           # e.g. best.pt, fold_result.json, tensorboard
+│   │   └── ...                # hpo, ablation, or interpretability subfolders
+│   └── mock_gallery/          # example NIfTIs from smoke pipeline
+├── scripts/                   # CLI entry points (all runnable from repo root)
+│   ├── validate_cohort_bids.py
+│   ├── preprocess_twins.py
+│   ├── generate_synthetic_twins.py
+│   ├── train.py
+│   ├── optimize.py            # Optuna HPO
+│   ├── baseline_heritability.py
+│   ├── generate_dominance_atlas.py
+│   ├── generate_mock_gallery.py
+│   ├── run_ablation.py
+│   ├── full_pipeline_test.py
+│   └── ...                    # h2_sweep, plot_latent_space, etc.
+├── src/                       # importable package
+│   ├── analysis/
+│   │   ├── heritability.py    # h², Falconer per-feature, embedding metrics
+│   │   └── splits.py          # family-stratified K-fold
+│   ├── models/
+│   │   ├── siamese_gnn.py     # Siamese, fusion, cross-modal MHA
+│   │   └── genetics_encoder.py
+│   ├── preprocessing/
+│   │   ├── bids_validator.py
+│   │   ├── slic_supervoxels.py  # 3D SLIC + midline / hemisphere masks
+│   │   ├── atlas.py, connectivity.py, graph.py, pipeline.py, ...
+│   │   ├── registration.py, synthetic.py, manifest.py
+│   │   └── ...
+│   ├── training/
+│   │   └── trainer.py
+│   └── utils/
+│       ├── brain_dataset.py, device.py, seeds.py, saliency.py
+│       ├── visualization.py  # NIfTI reverse map, bar charts, dominance plots
+│       └── synthetic_atlas.py
+└── tests/                     # pytest: models, BIDS, SLIC, interpretability, …
 ```
+
+**Convention:** `runs/<experiment>/` is the recommended home for `config.json`, per-fold checkpoints, **Optuna** exports (`best_config.json`, `optuna_trials.csv`, plots), and interpretability products so thesis figures remain **reproducible** and **separate** from source code.
 
 ---
 
-## CLI Reference
+## Installation
 
-### Generate Synthetic Data
+### 1. Conda environment (recommended: M1 / Apple Silicon + MPS)
 
 ```bash
-python scripts/generate_synthetic_twins.py \
-    --output-dir data/my_cohort \
-    --n-mz 40 --n-dz 40 \
-    --heritability 0.6 \
-    --n-rois 100 \
-    --prs-dim 16  # Enable PRS for multimodal
+conda create -n neurognn python=3.10 -y
+conda activate neurognn
 ```
 
-### Train a Model
+### 2. PyTorch and scientific stack
+
+Install **PyTorch** with the [official instructions](https://pytorch.org/get-started/locally/) for your platform. For current Apple Silicon builds (MPS):
 
 ```bash
-# Graph-only
+python -m pip install torch torchvision torchaudio
+```
+
+**Verify MPS (optional on Mac):**
+
+```bash
+python -c "import torch; print('MPS available:', torch.backends.mps.is_available())"
+```
+
+### 3. PyTorch Geometric and neuroimaging dependencies
+
+```bash
+python -m pip install torch-geometric
+python -m pip install nilearn nibabel scikit-image optuna
+python -m pip install -r requirements.txt
+```
+
+`requirements.txt` pins additional packages (e.g. **pandas**, **scikit-learn**, **matplotlib**). Use **`python -m pip`** in the same environment to avoid path mismatches.
+
+### 4. Development / tests (optional)
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
+**CPU / CUDA:** The same codebase runs on **CPU**; set device preference in training scripts (`--device auto` chooses **MPS** on supported Macs, else **CUDA** if available, else **CPU**).
+
+---
+
+## Usage examples
+
+### BIDS and PRS cohort validation
+
+Check imaging completeness and **ID crosswalk** to your PRS table (paths below are examples):
+
+```bash
+python scripts/validate_cohort_bids.py \
+  /path/to/bids_root \
+  /path/to/prs_cohort.csv \
+  --prs-id-col IID \
+  --verify-nib
+```
+
+**Inputs:** a **BIDS-like** (or coerced) root with `sub-*` directories and a **CSV/TSV** of PRS columns. Optional: `--globs-json` for project-specific NIfTI patterns, `--csv-out` for a full machine-readable report.
+
+### Optuna hyperparameter optimization
+
+```bash
+python scripts/optimize.py \
+  --data-root /path/to/cohort_with_subjects \
+  --output-dir runs/hpo1 \
+  --n-trials 20 --fold 0 --max-epochs 25 \
+  --in-channels 100 --use-cross-modal-attention \
+  --modality-feature-dims 30 30 40 \
+  --device mps
+```
+
+**Outputs** (under `runs/hpo1/`): `best_config.json`, `optuna_trials.csv`, and (when visualisation backends are available) HTML/PNG diagnostics such as `optuna_optimization_history.png`. Point training at the best hyperparameters (manually or by merging `best_config.json` into your `TrainConfig` workflow).
+
+### Modality dominance atlas (post-training)
+
+**Dominance** maps the **argmax** over cross-modal **attention** to a supervoxel label NIfTI. You need a **run directory** with `config.json` and `fold_NN/best.pt`, the **cohort** `data-root`, and a **per-subject** SLIC label NIfTI (or auto-discovery under `data-root/derivatives/slic`—see the script’s help).
+
+```bash
+python scripts/generate_dominance_atlas.py \
+  --run-dir runs/your_experiment \
+  --fold 0 --subject-id sub-01234 \
+  --data-root /path/to/cohort \
+  --output-dir runs/your_experiment/dominance_atlas \
+  --device mps
+```
+
+### Classical Falconer baseline and saliency comparison
+
+**Per-node** Falconer h<sup>2</sup> on raw connectomes, **NIfTI** output, and optional scatter **vs.** stored **GNN saliency** (1D `numpy` per supervoxel, same order as graph nodes):
+
+```bash
+python scripts/baseline_heritability.py \
+  --cohort-root /path/to/cohort \
+  --slic-labels /path/to/reference_slic_labels.nii.gz \
+  --run-dir runs/falconer_baseline1 \
+  --phenotype row_mean \
+  --saliency-npy /path/to/per_node_saliency.npy
+```
+
+**Outputs** default to `runs/falconer_baseline1/baseline_heritability/` (or a custom `--output-dir`): `baseline_falconer_atlas.nii.gz`, `baseline_falconer_h2.npy`, `run_manifest.json`, and `gnn_saliency_vs_falconer_h2.png` when saliency is provided. Add `--export-edges` for a large per–upper-triangle edge h<sup>2</sup> vector.
+
+---
+
+## Main training (cross-validation)
+
+After cohort construction:
+
+```bash
 python scripts/train.py \
-    --data-root data/my_cohort \
-    --output-dir runs/experiment1 \
-    --in-channels 100 \
-    --max-epochs 50
-
-# Multimodal with aux loss
-python scripts/train.py \
-    --data-root data/my_cohort \
-    --output-dir runs/experiment2 \
-    --in-channels 100 \
-    --prs-dim 16 \
-    --heritability-aux-weight 0.2 \
-    --heritability-aux-target 0.6
+  --data-root /path/to/cohort \
+  --output-dir runs/main_exp \
+  --n-splits 5 --max-epochs 60 --batch-size 8 \
+  --in-channels 100 --hidden-channels 64
 ```
 
-### Run h² Sweep (Grant Figure)
-
-```bash
-python scripts/run_h2_sweep.py \
-    --output-dir data/h2_sweep \
-    --n-mz 60 --n-dz 60 \
-    --max-epochs 40 \
-    --save-checkpoints
-```
-
-Outputs:
-- `h2_recovery.png` — Two-panel figure showing h² recovery and AUC
-- `sweep_results.csv` — Raw data for methods section
-
-### Generate Latent Space Figure
-
-```bash
-python scripts/plot_latent_space.py \
-    --run-dir runs/experiment1 \
-    --cohort-dir data/my_cohort \
-    --output figures/latent_space.png
-```
+`tensorboard` logs (when enabled in your run) can be pointed at the run’s **TensorBoard** subdirectories. For a self-contained pre-data smoke test, see `scripts/full_pipeline_test.py` and the **Tests** section above.
 
 ---
 
-## Key Architectural Decisions
+## Citation and research context
 
-### Why Spectral Graph Convolutions?
-
-GCNConv implements a first-order Chebyshev approximation of the spectral graph convolution:
-
-```
-H^(l+1) = σ(D̃^(-1/2) Ã D̃^(-1/2) H^(l) W^(l))
-```
-
-This acts as a **low-pass filter on the graph spectrum** — smoothing node features according to graph structure. For brain connectomes, this captures the intuition that functionally connected regions should have similar representations.
-
-See `docs/spectral_primer.md` for the full mathematical treatment.
-
-### Why Contrastive Loss?
-
-We frame heritability estimation as a metric learning problem:
-- MZ twins (label=0) → minimize distance
-- DZ twins (label=1) → push apart beyond margin
-
-This learns a representation where genetic similarity maps to geometric proximity.
-
-### Why the Auxiliary h² Loss?
-
-Standard contrastive loss produces good **relative** rankings (MZ < DZ) but doesn't guarantee **calibrated absolute h²**. The auxiliary loss:
-
-```
-L_aux = λ · (ĥ²_batch - h²_target)²
-```
-
-directly supervises the batch-level heritability estimate, anchoring the learned manifold to the correct scale.
-
----
-
-## Troubleshooting
-
-| Problem | Symptom | Solution |
-|---------|---------|----------|
-| `torch.load` / `UnpicklingError` on `.pt` graphs | PyTorch 2.6+ defaults to `weights_only=True` | Use `torch.load(path, weights_only=False, map_location="cpu")` for PyG `Data` files (your own data only) |
-| TensorBoard empty | "No dashboards active" | Install: `pip install tensorboard` |
-| NaN loss | Loss becomes NaN | Already fixed — we use `abs(edge_weight)` for GCN normalization |
-| AUC stuck at 0.5 | No MZ/DZ separation | Check labels, increase epochs |
-| Overfitting | Train↓ Val↑ | Increase dropout, reduce model size |
-| Slow on M1 | Not using MPS | Check `src/utils/device.py` selects MPS |
-
----
-
-## Citation
-
-If you use this code for research, please cite:
-
-```
-@mastersthesis{neurospectral2026,
-  title={Decoding Genetic vs. Environmental Brain Phenotype with Multimodal Graph Neural Networks},
-  author={[Kosiasochukwu Uzoka]},
-  school={King's College London},
-  year={2026}
-}
-```
+If you use this code in a thesis, grant, or paper, please cite the repository, license (MIT, see [LICENSE](LICENSE)), and the relevant methodological references for **Falconer heritability**, **twin** designs, and **GNNs** for brain connectivity as per your target venue’s style.
 
 ---
 
 ## License
 
-MIT License — see LICENSE file for details.
+This project is released under the **MIT License** — see [LICENSE](LICENSE).
+
+---
+
+## Contact
+
+**KCL Project 65** — for collaboration or data-use questions, follow your institution’s and TwinsUK’s **data governance** rules. For software issues, use GitHub **Issues** on this repository.

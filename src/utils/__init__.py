@@ -7,6 +7,8 @@ from src.utils.saliency import (
 )
 from src.utils.visualization import (
     map_nodes_to_volume,
+    per_node_dominant_modality,
+    plot_dominance_atlas_orthogonal,
     plot_modality_importance_barchart,
     pooled_modality_query_importance,
 )
@@ -17,6 +19,8 @@ __all__ = [
     "gradient_saliency_contrastive_pair",
     "integrated_gradients_contrastive_pair",
     "map_nodes_to_volume",
+    "per_node_dominant_modality",
+    "plot_dominance_atlas_orthogonal",
     "plot_modality_importance_barchart",
     "pooled_modality_query_importance",
     "set_seed",

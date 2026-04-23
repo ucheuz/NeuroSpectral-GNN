@@ -37,8 +37,13 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch_geometric.nn import GCNConv, global_add_pool, global_mean_pool
 
+from src.models.genetics_encoder import GeneticsEncoder
+
+# Deprecated name (use ``GeneticsEncoder``); kept for older imports.
+GeneticEncoder = GeneticsEncoder
 
 PoolingStrategy = Literal["mean", "add", "mean+add"]
+ModelTypeName = Literal["auto", "graph", "multimodal", "genetics_only", "fused"]
 
 
 @dataclass
@@ -80,8 +85,12 @@ class SiameseConfig:
     prs_embed_dim: int = 64
     prs_dropout: float = 0.1
     prs_fusion: Literal["concat", "gated"] = "concat"
-    # Which encoder to build (``auto`` = graph if prs_dim==0 else multimodal).
-    model_type: Literal["auto", "graph", "multimodal", "genetics_only"] = "auto"
+    # MLP depth for :class:`GeneticsEncoder` (PRS branch): stacked Linear+BN+ReLU+Dropout
+    # blocks *before* the final projection to ``prs_embed_dim``.
+    genetics_mlp_num_hidden_blocks: int = 2
+    # Which encoder to build (``auto`` = graph if prs_dim==0 else multimodal;
+    # ``fused`` is an alias for ``multimodal`` = GNN + PRS).
+    model_type: ModelTypeName = "auto"
 
 
 def _modality_dim_tuple(cfg: SiameseConfig) -> tuple[int, ...]:
@@ -309,36 +318,6 @@ class BrainGNNEncoder(nn.Module):
         return out
 
 
-class GeneticEncoder(nn.Module):
-    """MLP that maps a polygenic risk score (PRS) vector into a latent space
-    comparable with the graph embedding.
-
-    For Project 65 we treat the PRS as a dense low-dimensional summary of
-    common-variant genetic liability. The encoder is intentionally small
-    (2 hidden layers) because PRS dimensions rarely exceed a few hundred in
-    practice and we want to avoid over-parameterising the non-GNN branch.
-    """
-
-    def __init__(
-        self,
-        in_dim: int,
-        hidden_dim: int,
-        out_dim: int,
-        dropout: float = 0.1,
-    ):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(in_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, out_dim),
-        )
-
-    def forward(self, prs: Tensor) -> Tensor:
-        return self.net(prs)
-
-
 class GatedFusion(nn.Module):
     """Learned sigmoid gate g in [0, 1]^d that mixes graph and PRS embeddings:
 
@@ -378,6 +357,12 @@ class ProjectionHead(nn.Module):
 
 class SiameseBrainNet(nn.Module):
     """Twin Siamese wrapper: encodes Twin A and Twin B with shared weights.
+
+    **Ablation modes** (via :func:`build_siamese_model` / ``SiameseConfig.model_type``):
+
+    - ``graph`` — GNN on ``x`` only (``prs`` ignored).
+    - ``genetics_only`` — :class:`GeneticsEncoder` on ``data.prs`` only.
+    - ``multimodal`` or ``fused`` — GNN + PRS branch, then concat or gated fusion.
 
     Inference-time usage:
         z_a = model.encode(data_a)  # [B, graph_embed_dim]  <- use this for analysis
@@ -447,7 +432,7 @@ class SiameseBrainNet(nn.Module):
 
 
 class GeneticsOnlySiameseNet(nn.Module):
-    """PRS-only Siamese path for ablation: no GNN, only ``GeneticEncoder`` + head.
+    """PRS-only Siamese path for ablation: no GNN, only :class:`GeneticsEncoder` + head.
 
     Expects each ``Data`` to have ``prs`` of shape ``[B, prs_dim]`` (batched) or
     ``[1, prs_dim]`` (single graph). The graph structure in ``x`` / ``edge_index``
@@ -460,10 +445,11 @@ class GeneticsOnlySiameseNet(nn.Module):
         self.cfg = cfg
         if cfg.prs_dim <= 0:
             raise ValueError("GeneticsOnlySiameseNet requires cfg.prs_dim > 0")
-        self.prs_encoder = GeneticEncoder(
+        self.prs_encoder = GeneticsEncoder.from_dims(
             in_dim=cfg.prs_dim,
             hidden_dim=cfg.prs_hidden,
             out_dim=cfg.prs_embed_dim,
+            num_hidden_blocks=cfg.genetics_mlp_num_hidden_blocks,
             dropout=cfg.prs_dropout,
         )
         self.projector = ProjectionHead(
@@ -494,6 +480,8 @@ class GeneticsOnlySiameseNet(nn.Module):
 def _resolve_siamese_model_type(cfg: SiameseConfig) -> str:
     if cfg.model_type == "auto":
         return "graph" if cfg.prs_dim <= 0 else "multimodal"
+    if cfg.model_type == "fused":
+        return "multimodal"
     return cfg.model_type
 
 
@@ -503,7 +491,7 @@ class MultimodalSiameseBrainNet(SiameseBrainNet):
     Forward-path topology:
 
         data.x, data.edge_index --[GNN encoder]--> z_graph  (R^G)
-              data.prs          --[GeneticEncoder]--> z_prs (R^P)
+              data.prs          --[GeneticsEncoder]--> z_prs (R^P)
                    |__________ fuse (concat or gated) __________|
                                          v
                                       z_fused  (R^F)
@@ -527,10 +515,11 @@ class MultimodalSiameseBrainNet(SiameseBrainNet):
         graph_dim = self.encoder.graph_embed_dim
         prs_dim = cfg.prs_embed_dim
 
-        self.prs_encoder = GeneticEncoder(
+        self.prs_encoder = GeneticsEncoder.from_dims(
             in_dim=cfg.prs_dim,
             hidden_dim=cfg.prs_hidden,
             out_dim=prs_dim,
+            num_hidden_blocks=cfg.genetics_mlp_num_hidden_blocks,
             dropout=cfg.prs_dropout,
         )
 
@@ -709,6 +698,7 @@ __all__ = [
     "ContrastiveLoss",
     "GatedFusion",
     "GeneticEncoder",
+    "GeneticsEncoder",
     "GeneticsOnlySiameseNet",
     "HeritabilityAuxLoss",
     "MultimodalSiameseBrainNet",

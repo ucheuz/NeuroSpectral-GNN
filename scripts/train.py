@@ -66,10 +66,16 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--prs-fusion", default="concat",
                    choices=["concat", "gated"])
     p.add_argument(
+        "--genetics-mlp-num-hidden-blocks",
+        type=int,
+        default=2,
+        help="PRS MLP: number of (Linear+BN+ReLU+Dropout) blocks before the final projection.",
+    )
+    p.add_argument(
         "--model-type",
         default="auto",
-        choices=["auto", "graph", "multimodal", "genetics_only"],
-        help="Encoder: graph-only (GNN), multimodal (GNN+PRS), genetics_only (PRS ablation), "
+        choices=["auto", "graph", "multimodal", "fused", "genetics_only"],
+        help="Encoder: graph-only (GNN), multimodal/fused (GNN+PRS), genetics_only (PRS ablation), "
              "or auto (graph if prs_dim=0 else multimodal).",
     )
 
@@ -135,6 +141,7 @@ def main() -> int:
         prs_embed_dim=args.prs_embed_dim,
         prs_dropout=args.prs_dropout,
         prs_fusion=args.prs_fusion,
+        genetics_mlp_num_hidden_blocks=args.genetics_mlp_num_hidden_blocks,
         model_type=args.model_type,
         lr=args.lr,
         weight_decay=args.weight_decay,

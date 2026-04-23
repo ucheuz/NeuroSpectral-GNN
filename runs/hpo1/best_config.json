@@ -1,0 +1,8 @@
+{
+  "learning_rate": 0.008344970390913057,
+  "contrastive_margin": 0.5048008809284353,
+  "hidden_channels": 128,
+  "cross_modal_num_heads": 4,
+  "best_val_loss": 0.023530483711510897,
+  "n_trials": 20
+}

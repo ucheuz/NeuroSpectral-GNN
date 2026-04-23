@@ -17,7 +17,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor
 
-from src.models.siamese_gnn import ContrastiveLoss, SiameseBrainNet
+from src.models.siamese_gnn import ContrastiveLoss
 
 
 def _replace_batch_x(data, x_new: Tensor):
@@ -28,7 +28,7 @@ def _replace_batch_x(data, x_new: Tensor):
 
 
 def gradient_saliency_contrastive_pair(
-    model: SiameseBrainNet,
+    model: torch.nn.Module,
     data_a,
     data_b,
     label: Tensor,
@@ -93,7 +93,7 @@ def gradient_saliency_contrastive_pair(
 
 
 def integrated_gradients_contrastive_pair(
-    model: SiameseBrainNet,
+    model: torch.nn.Module,
     data_a,
     data_b,
     label: Tensor,
