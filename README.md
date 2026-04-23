@@ -8,6 +8,9 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.x-EE4C2C?logo=pytorch)](https://pytorch.org/)
 [![Platform](https://img.shields.io/badge/Apple%20Silicon-MPS%20%7C%20CUDA%20%7C%20CPU-555555)](#installation)
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-181717?logo=github)](https://github.com/ucheuz/NeuroSpectral-GNN)
+
+**Repository:** [https://github.com/ucheuz/NeuroSpectral-GNN](https://github.com/ucheuz/NeuroSpectral-GNN) · *clone:* `git clone https://github.com/ucheuz/NeuroSpectral-GNN.git`
 
 *NeuroSpectral-GNN* is a **multimodal Siamese Graph Neural Network (GNN) framework** developed for **KCL Project 65** to disentangle **genetic** and **environmental** contributions to **brain structure and function** from **TwinsUK** neuroimaging and genomics. It combines multi-sequence MRI mapped to **SLIC supervoxels** (T1, T2-FLAIR, DWI) with **Polygenic Risk Scores (PRS)**, and learns a representation in which monozygotic (MZ) twin pairs are more similar than dizygotic (DZ) pairs. Learned and classical statistics are **reverse-mapped** into 3D volumes to form **heritability and interpretability atlases** suitable for thesis evaluation and grant reporting.
 
@@ -249,16 +252,39 @@ python scripts/train.py \
 
 ## Citation and research context
 
-If you use this code in a thesis, grant, or paper, please cite the repository, license (MIT, see [LICENSE](LICENSE)), and the relevant methodological references for **Falconer heritability**, **twin** designs, and **GNNs** for brain connectivity as per your target venue’s style.
+If you use this software or methods in a thesis, dissertation, grant, or paper, please acknowledge the code and the author’s affiliation, retain the [MIT](LICENSE) license notice where required, and add methodological references for **Falconer heritability**, **twin** study designs, and **graph neural networks** for brain connectivity as required by your venue (APA, Vancouver, *Nature*, *NeuroImage*, etc.).
+
+### Suggested software citation (author & institution)
+
+**Kosiasochukwu Uzoka** · **King’s College London (KCL)**, United Kingdom — *NeuroSpectral-GNN* (KCL **Project 65**).
+
+**APA-style (7th ed., software):**
+
+> Kosiasochukwu Uzoka (2026). *NeuroSpectral-GNN* (Version main) [Computer software]. GitHub. https://github.com/ucheuz/NeuroSpectral-GNN
+
+**BibTeX (software / @misc):**
+
+```bibtex
+@misc{mudiuzoka2026neurospectral,
+  author  = {Kosiasochukwu Uzoka},
+  title   = {{NeuroSpectral-GNN: Multimodal Siamese Graph Neural Networks
+             for Heritability of Brain Organization}},
+  year    = {2026},
+  url     = {https://github.com/ucheuz/NeuroSpectral-GNN},
+  note    = {KCL Project 65, King's College London, UK. MIT License.}
+}
+```
+
+*(Adapt `year` or `version` to match your commit tag or release if you publish a formal release on GitHub.)*
 
 ---
 
 ## License
 
-This project is released under the **MIT License** — see [LICENSE](LICENSE).
+This project is released under the **MIT License** — see [LICENSE](LICENSE) (Copyright © 2026 Kosiasochukwu).
 
 ---
 
 ## Contact
 
-**KCL Project 65** — for collaboration or data-use questions, follow your institution’s and TwinsUK’s **data governance** rules. For software issues, use GitHub **Issues** on this repository.
+**KCL Project 65** — **Kosiasochukwu Uzoka**, **King’s College London (KCL), UK**. For collaboration or data-use questions, follow your institution’s and **TwinsUK** data-governance requirements. For **software bugs, features, and discussion**, open an issue on GitHub: [github.com/ucheuz/NeuroSpectral-GNN/issues](https://github.com/ucheuz/NeuroSpectral-GNN/issues).
