@@ -29,7 +29,7 @@ Design notes (for the grant proposal: spectral + metric-learning storyline)
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 import torch
 import torch.nn as nn
@@ -45,7 +45,7 @@ PoolingStrategy = Literal["mean", "add", "mean+add"]
 class SiameseConfig:
     """Hyperparameters for the Siamese encoder + projection head."""
 
-    in_channels: int = 100  # node feature dim (== n_rois if mode='profile')
+    in_channels: int = 100  # node feature dim; sum(modality_feature_dims) if set
     hidden_channels: int = 64
     num_layers: int = 3
     dropout: float = 0.2
@@ -55,6 +55,20 @@ class SiameseConfig:
     projection_hidden: int = 64
     normalize_embeddings: bool = True
 
+    # --- MRI supervoxel / cross-modal fusion (KCL P65: DWI+T1+FLAIR) ---
+    # If ``use_cross_modal_attention`` is True, ``x`` is split into contiguous
+    # blocks of sizes ``modality_feature_dims`` (must sum to ``in_channels``).
+    # A MultiheadAttention block runs *per supervoxel* over modality tokens, then
+    # mean-pools to a single vector of size ``cross_modal_d_model`` before GCNs.
+    modality_feature_dims: Optional[tuple[int, ...]] = None
+    use_cross_modal_attention: bool = False
+    cross_modal_d_model: int = 64
+    cross_modal_num_heads: int = 4
+    cross_modal_dropout: float = 0.1
+    # Optional modality names (for attention matrix axes in plots); length must
+    # match ``modality_feature_dims`` when the latter is set.
+    modality_names: tuple[str, ...] = ()
+
     # Multimodal PRS (polygenic-risk-score) fusion. 0 disables.
     prs_dim: int = 0
     prs_hidden: int = 64
@@ -63,6 +77,87 @@ class SiameseConfig:
     prs_fusion: Literal["concat", "gated"] = "concat"
     # Which encoder to build (``auto`` = graph if prs_dim==0 else multimodal).
     model_type: Literal["auto", "graph", "multimodal", "genetics_only"] = "auto"
+
+
+def _modality_dim_tuple(cfg: SiameseConfig) -> tuple[int, ...]:
+    if cfg.modality_feature_dims is None:
+        return (cfg.in_channels,)
+    m = cfg.modality_feature_dims
+    if sum(m) != cfg.in_channels:
+        raise ValueError(
+            f"modality_feature_dims {m} must sum to in_channels={cfg.in_channels}"
+        )
+    return m
+
+
+class ModalityCrossAttentionBlock(nn.Module):
+    r"""Per-node fusion of modality-specific vectors with self-attention over modalities.
+
+    For each supervoxel (graph node) we form a short sequence
+    :math:`\{\mathbf{h}^{(m)}\}_{m=1}^{M}` of length :math:`M` (modalities) after
+    linear projection to a shared :math:`d_{\text{model}}` space, apply one
+    multi-head self-attention block (residual + layer norm) and a small FFN, then
+    **mean-pool** over :math:`m` to obtain a single node descriptor before GCN layers.
+
+    This is the natural PyTorch analogue of *cross-modality* mixing used in
+    multi-parametric imaging: attention weights
+    :math:`\mathbb{R}^{M \times M}` (averaged over heads) can be visualised *per
+    supervoxel* to build a **modality / heritability-relevant atlas** in concert
+    with node-wise gradients of the task loss.
+
+    Args:
+        dims: per-modality raw feature sizes (``sum(dims) == in_channels`` on ``Data``).
+        d_model: hidden width (must be divisible by ``n_heads``).
+    """
+
+    def __init__(
+        self,
+        dims: tuple[int, ...],
+        d_model: int,
+        n_heads: int,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        if len(dims) < 2:
+            raise ValueError("ModalityCrossAttentionBlock needs at least two modalities")
+        if d_model % n_heads != 0:
+            raise ValueError(f"d_model={d_model} must be divisible by n_heads={n_heads}")
+        self.dims = dims
+        self.n_mod = len(dims)
+        self.d_model = d_model
+        self.proj = nn.ModuleList([nn.Linear(d, d_model) for d in dims])
+        self.mha = nn.MultiheadAttention(
+            d_model, n_heads, dropout=dropout, batch_first=True
+        )
+        self.norm1 = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, d_model * 4),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(d_model * 4, d_model),
+        )
+        self.norm2 = nn.LayerNorm(d_model)
+
+    def forward(
+        self, x: Tensor, return_attn: bool = False
+    ) -> Union[Tensor, tuple[Tensor, Tensor]]:
+        """``x`` is ``[N, sum(dims)]``; returns ``[N, d_model]`` (or + attn weights)."""
+        parts = torch.split(x, self.dims, dim=-1)
+        seq = torch.stack([p(f) for p, f in zip(self.proj, parts)], dim=1)  # [N, M, d]
+        out, w = self.mha(
+            seq,
+            seq,
+            seq,
+            need_weights=return_attn,
+            average_attn_weights=True,
+        )
+        h = self.norm1(seq + self.dropout(out))
+        h = self.norm2(h + self.dropout(self.ffn(h)))
+        fused = h.mean(dim=1)  # [N, d_model]
+        if return_attn:
+            return fused, w
+        return fused
 
 
 class BrainGNNEncoder(nn.Module):
@@ -75,6 +170,13 @@ class BrainGNNEncoder(nn.Module):
     edge_weight : Tensor [num_edges_total], optional
     batch : LongTensor [num_nodes_total], graph-membership indices
 
+    **Cross-modal (optional).**  When ``cfg.use_cross_modal_attention`` and more
+    than one block is listed in ``modality_feature_dims``, a
+    :class:`ModalityCrossAttentionBlock` runs *before* the GCN stack.  Use
+    `forward(..., return_modality_attn=True)` to obtain per-node :math:`M \times M`
+    attention for interpretability (Heritability / modality importance maps on the
+    supervoxel graph).
+
     Output
     ------
     graph_embedding : Tensor [batch_size, graph_embed_dim]
@@ -84,10 +186,25 @@ class BrainGNNEncoder(nn.Module):
     def __init__(self, cfg: SiameseConfig):
         super().__init__()
         self.cfg = cfg
+        self._modality_dims: tuple[int, ...] = _modality_dim_tuple(cfg)
+        self.modality_mha: Optional[ModalityCrossAttentionBlock] = None
+        gcn_in: int
+        if cfg.use_cross_modal_attention and len(self._modality_dims) > 1:
+            self.modality_mha = ModalityCrossAttentionBlock(
+                self._modality_dims,
+                cfg.cross_modal_d_model,
+                cfg.cross_modal_num_heads,
+                cfg.cross_modal_dropout,
+            )
+            gcn_in = cfg.cross_modal_d_model
+        else:
+            gcn_in = cfg.in_channels
+
         self.convs = nn.ModuleList()
         self.norms = nn.ModuleList()
+        self._gcn_in_channels = gcn_in
 
-        dims = [cfg.in_channels] + [cfg.hidden_channels] * cfg.num_layers
+        dims = [gcn_in] + [cfg.hidden_channels] * cfg.num_layers
         for i in range(cfg.num_layers):
             # add_self_loops=True is the standard GCN formulation: we inject
             # \tilde{A} = A + I so each node also considers its own features.
@@ -115,10 +232,27 @@ class BrainGNNEncoder(nn.Module):
         edge_index: Tensor,
         edge_weight: Optional[Tensor] = None,
         batch: Optional[Tensor] = None,
-    ) -> Tensor:
+        return_modality_attn: bool = False,
+        return_node_features: bool = False,
+    ) -> Union[
+        Tensor,
+        tuple[Tensor, Tensor],
+        tuple[Tensor, Tensor, Tensor],
+    ]:
         if batch is None:
             # Single-graph path: all nodes belong to graph 0.
             batch = x.new_zeros(x.size(0), dtype=torch.long)
+
+        mod_attn: Optional[Tensor] = None
+        if self.modality_mha is not None:
+            if return_modality_attn:
+                x, mod_attn = self.modality_mha(x, return_attn=True)  # type: ignore[assignment]
+            else:
+                x = self.modality_mha(x, return_attn=False)  # type: ignore[assignment]
+        elif x.size(1) != self._gcn_in_channels:
+            raise ValueError(
+                f"Node features have {x.size(1)} channels; encoder expects {self._gcn_in_channels}"
+            )
 
         ew: Optional[Tensor]
         if self.cfg.use_edge_weight and edge_weight is not None:
@@ -136,7 +270,14 @@ class BrainGNNEncoder(nn.Module):
             x = norm(x)
             x = F.relu(x)
             x = F.dropout(x, p=self.cfg.dropout, training=self.training)
-        return self._pool(x, batch)
+        out = self._pool(x, batch)
+        if return_node_features and return_modality_attn:
+            return out, x, mod_attn  # type: ignore[misc]  # mod_attn set above
+        if return_node_features:
+            return out, x
+        if return_modality_attn:
+            return out, mod_attn  # type: ignore[return-value]
+        return out
 
 
 class GeneticEncoder(nn.Module):
@@ -514,6 +655,7 @@ BrainGNN = BrainGNNEncoder
 __all__ = [
     "BrainGNN",
     "BrainGNNEncoder",
+    "ModalityCrossAttentionBlock",
     "ContrastiveLoss",
     "GatedFusion",
     "GeneticEncoder",

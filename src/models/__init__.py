@@ -1,6 +1,7 @@
 from src.models.siamese_gnn import (
     BrainGNN,
     BrainGNNEncoder,
+    ModalityCrossAttentionBlock,
     ContrastiveLoss,
     GatedFusion,
     GeneticEncoder,
@@ -17,6 +18,7 @@ from src.models.siamese_gnn import (
 __all__ = [
     "BrainGNN",
     "BrainGNNEncoder",
+    "ModalityCrossAttentionBlock",
     "ContrastiveLoss",
     "GatedFusion",
     "GeneticEncoder",

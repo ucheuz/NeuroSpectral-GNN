@@ -120,6 +120,7 @@ requests==2.31.0
 rich==14.3.3
 rsa==4.9.1
 scikit-learn==1.8.0
+scikit-image==0.25.0
 scipy==1.17.1
 seaborn==0.13.2
 setuptools==78.1.0
